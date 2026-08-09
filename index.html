@@ -1,0 +1,1930 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport"
+      content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+
+<title>VETHA CREATION - Carrom</title>
+
+<style>
+*{
+    box-sizing:border-box;
+    -webkit-tap-highlight-color:transparent;
+}
+
+body{
+    margin:0;
+    min-height:100vh;
+    background:#160b05;
+    font-family:Arial,sans-serif;
+    text-align:center;
+    color:white;
+}
+
+h1{
+    margin:12px 0 2px;
+    color:#f3c45d;
+    letter-spacing:5px;
+    font-size:34px;
+}
+
+.info{
+    color:#b99a6c;
+    font-size:11px;
+    letter-spacing:3px;
+    margin-bottom:10px;
+}
+
+.players{
+    width:min(850px,96vw);
+    margin:auto;
+    display:flex;
+    justify-content:space-between;
+}
+
+.player{
+    padding:7px 20px;
+    min-width:150px;
+    border:1px solid #68471f;
+    border-radius:12px;
+    background:#211209;
+}
+
+.player.active{
+    border-color:#e5b94f;
+    box-shadow:0 0 15px #e5b94f55;
+}
+
+.name{
+    font-size:11px;
+    letter-spacing:2px;
+    color:#c8aa78;
+}
+
+.score{
+    font-size:27px;
+    color:#f3c45d;
+    font-weight:bold;
+}
+
+canvas{
+    display:block;
+    width:min(94vw,850px);
+    height:auto;
+    margin:12px auto;
+    border-radius:12px;
+    box-shadow:0 20px 50px #000;
+    touch-action:none;
+}
+
+.turn{
+    color:#f2cb69;
+    margin:8px;
+    font-weight:bold;
+}
+
+button{
+    padding:9px 18px;
+    margin:4px;
+    border:1px solid #8c682d;
+    border-radius:8px;
+    background:#21140b;
+    color:#f4d17b;
+    font-weight:bold;
+}
+
+#message{
+    min-height:25px;
+    color:#cbb48d;
+    font-size:13px;
+}
+</style>
+</head>
+
+<body>
+
+<h1>CARROM</h1>
+<div class="info">VETHA CREATION • AND EDITION</div>
+
+<div class="players">
+
+    <div class="player active" id="p1">
+        <div class="name">PLAYER 1</div>
+        <div class="score" id="score1">0</div>
+    </div>
+
+    <div class="player" id="p2">
+        <div class="name">PLAYER 2</div>
+        <div class="score" id="score2">0</div>
+    </div>
+
+</div>
+
+<canvas id="board" width="800" height="800"></canvas>
+
+<div class="turn" id="turn">
+    PLAYER 1 TURN
+</div>
+
+<button onclick="restart()">↻ RESTART</button>
+<button onclick="toggleSound()" id="soundBtn">🔊 SOUND</button>
+
+<div id="message">
+    Move the striker on the baseline, drag backward and release.
+</div>
+
+
+<script>
+
+const canvas = document.getElementById("board");
+const ctx = canvas.getContext("2d");
+
+const SIZE = 800;
+
+const BOARD = {
+    x:55,
+    y:55,
+    w:690,
+    h:690
+};
+
+const PLAY = {
+    left:170,
+    right:630,
+    top:155,
+    bottom:645
+};
+
+const RED = "#b51d25";
+const LINE = "#17120d";
+
+let player = 1;
+let scores = [0,0];
+
+let coins = [];
+let striker;
+
+let aiming = false;
+let shooting = false;
+let scored = false;
+
+let pointerX = 0;
+let pointerY = 0;
+
+let soundOn = true;
+let audio;
+
+
+/* =====================================================
+   SOUND
+===================================================== */
+
+function beep(freq=400,time=50){
+
+    if(!soundOn) return;
+
+    try{
+
+        if(!audio)
+            audio = new AudioContext();
+
+        const oscillator = audio.createOscillator();
+        const gain = audio.createGain();
+
+        oscillator.frequency.value = freq;
+        gain.gain.value = 0.035;
+
+        oscillator.connect(gain);
+        gain.connect(audio.destination);
+
+        oscillator.start();
+
+        setTimeout(
+            ()=>oscillator.stop(),
+            time
+        );
+
+    }catch(e){}
+}
+
+function toggleSound(){
+
+    soundOn = !soundOn;
+
+    document.getElementById("soundBtn")
+        .textContent =
+        soundOn ? "🔊 SOUND" : "🔇 SOUND";
+}
+
+
+/* =====================================================
+   COINS
+===================================================== */
+
+function createCoin(x,y,color,type="coin"){
+
+    coins.push({
+
+        x:x,
+        y:y,
+
+        vx:0,
+        vy:0,
+
+        r:type==="queen" ? 14 : 13,
+
+        color:color,
+        type:type,
+
+        active:true
+    });
+}
+
+function setupCoins(){
+
+    coins=[];
+
+    /* Queen */
+
+    createCoin(
+        400,
+        400,
+        "#d71920",
+        "queen"
+    );
+
+    /* 18 coins */
+
+    for(let i=0;i<18;i++){
+
+        const angle =
+            i * Math.PI * 2 / 18;
+
+        const radius = 34;
+
+        createCoin(
+
+            400 + Math.cos(angle)*radius,
+
+            400 + Math.sin(angle)*radius,
+
+            i%2===0
+                ? "#171717"
+                : "#f5eee4"
+        );
+    }
+
+    resetStriker();
+}
+
+
+/* =====================================================
+   STRIKER
+===================================================== */
+
+function resetStriker(){
+
+    striker = {
+
+        x:400,
+
+        y:
+            player===1
+            ?620
+            :180,
+
+        vx:0,
+        vy:0,
+
+        r:19,
+
+        active:true
+    };
+}
+
+
+/* =====================================================
+   BOARD
+===================================================== */
+
+function drawBoard(){
+
+    ctx.clearRect(
+        0,
+        0,
+        SIZE,
+        SIZE
+    );
+
+
+    /* Outer wood */
+
+    const wood =
+        ctx.createLinearGradient(
+            0,0,
+            800,800
+        );
+
+    wood.addColorStop(
+        0,
+        "#a45c27"
+    );
+
+    wood.addColorStop(
+        .25,
+        "#d28a43"
+    );
+
+    wood.addColorStop(
+        .5,
+        "#9d5422"
+    );
+
+    wood.addColorStop(
+        .75,
+        "#c67934"
+    );
+
+    wood.addColorStop(
+        1,
+        "#7d3d18"
+    );
+
+    ctx.fillStyle = wood;
+
+    ctx.fillRect(
+        0,
+        0,
+        800,
+        800
+    );
+
+
+    /* Thick frame */
+
+    ctx.fillStyle="#754018";
+
+    ctx.fillRect(
+        25,
+        25,
+        750,
+        750
+    );
+
+
+    /* Inner wood frame */
+
+    ctx.fillStyle="#b96f32";
+
+    ctx.fillRect(
+        42,
+        42,
+        716,
+        716
+    );
+
+
+    /* Playing surface */
+
+    const surface =
+        ctx.createLinearGradient(
+            55,55,
+            745,745
+        );
+
+    surface.addColorStop(
+        0,
+        "#f2d29b"
+    );
+
+    surface.addColorStop(
+        .5,
+        "#e7bd7c"
+    );
+
+    surface.addColorStop(
+        1,
+        "#dca35c"
+    );
+
+    ctx.fillStyle=surface;
+
+    ctx.fillRect(
+        55,
+        55,
+        690,
+        690
+    );
+
+
+    /* Outer playing border */
+
+    ctx.strokeStyle=LINE;
+    ctx.lineWidth=4;
+
+    ctx.strokeRect(
+        72,
+        72,
+        656,
+        656
+    );
+
+
+    /* Main inner square */
+
+    ctx.strokeStyle=LINE;
+    ctx.lineWidth=3;
+
+    ctx.strokeRect(
+        150,
+        150,
+        500,
+        500
+    );
+
+
+    drawTopBottomLines();
+
+    drawSideLines();
+
+    drawDiagonalGuides();
+
+    drawShootingCircles();
+
+    drawCenterDesign();
+
+    drawCornerDots();
+
+    drawPockets();
+
+    drawBrand();
+}
+
+
+/* =====================================================
+   TOP + BOTTOM LINES
+===================================================== */
+
+function drawTopBottomLines(){
+
+    /*
+       TOP DOUBLE LINE
+    */
+
+    ctx.strokeStyle=LINE;
+    ctx.lineWidth=3;
+
+    ctx.beginPath();
+
+    ctx.moveTo(180,170);
+    ctx.lineTo(620,170);
+
+    ctx.stroke();
+
+
+    ctx.beginPath();
+
+    ctx.moveTo(180,185);
+    ctx.lineTo(620,185);
+
+    ctx.stroke();
+
+
+    /*
+       BOTTOM DOUBLE LINE
+    */
+
+    ctx.beginPath();
+
+    ctx.moveTo(180,615);
+    ctx.lineTo(620,615);
+
+    ctx.stroke();
+
+
+    ctx.beginPath();
+
+    ctx.moveTo(180,630);
+    ctx.lineTo(620,630);
+
+    ctx.stroke();
+
+
+    /*
+       Red shooting circles
+    */
+
+    for(const x of [180,620]){
+
+        ctx.beginPath();
+
+        ctx.arc(
+            x,
+            177,
+            15,
+            0,
+            Math.PI*2
+        );
+
+        ctx.strokeStyle=RED;
+        ctx.lineWidth=3;
+
+        ctx.stroke();
+
+
+        ctx.beginPath();
+
+        ctx.arc(
+            x,
+            623,
+            15,
+            0,
+            Math.PI*2
+        );
+
+        ctx.stroke();
+    }
+}
+
+
+/* =====================================================
+   SIDE LINES
+===================================================== */
+
+function drawSideLines(){
+
+    /*
+       LEFT
+    */
+
+    ctx.strokeStyle=LINE;
+    ctx.lineWidth=3;
+
+    ctx.beginPath();
+
+    ctx.moveTo(170,180);
+    ctx.lineTo(170,620);
+
+    ctx.stroke();
+
+
+    ctx.beginPath();
+
+    ctx.moveTo(185,180);
+    ctx.lineTo(185,620);
+
+    ctx.stroke();
+
+
+    /*
+       RIGHT
+    */
+
+    ctx.beginPath();
+
+    ctx.moveTo(630,180);
+    ctx.lineTo(630,620);
+
+    ctx.stroke();
+
+
+    ctx.beginPath();
+
+    ctx.moveTo(615,180);
+    ctx.lineTo(615,620);
+
+    ctx.stroke();
+
+
+    /*
+       Red side circles
+    */
+
+    for(const y of [180,620]){
+
+        ctx.beginPath();
+
+        ctx.arc(
+            177,
+            y,
+            15,
+            0,
+            Math.PI*2
+        );
+
+        ctx.strokeStyle=RED;
+        ctx.lineWidth=3;
+
+        ctx.stroke();
+
+
+        ctx.beginPath();
+
+        ctx.arc(
+            623,
+            y,
+            15,
+            0,
+            Math.PI*2
+        );
+
+        ctx.stroke();
+    }
+}
+
+
+/* =====================================================
+   DIAGONAL GUIDES
+===================================================== */
+
+function drawDiagonalGuides(){
+
+    ctx.strokeStyle="#8b7152";
+    ctx.lineWidth=2;
+
+    ctx.setLineDash([6,7]);
+
+
+    /*
+       Top left
+    */
+
+    line(
+        120,120,
+        300,300
+    );
+
+
+    /*
+       Top right
+    */
+
+    line(
+        680,120,
+        500,300
+    );
+
+
+    /*
+       Bottom left
+    */
+
+    line(
+        120,680,
+        300,500
+    );
+
+
+    /*
+       Bottom right
+    */
+
+    line(
+        680,680,
+        500,500
+    );
+
+
+    ctx.setLineDash([]);
+}
+
+
+/* =====================================================
+   SHOOTING CIRCLES
+===================================================== */
+
+function drawShootingCircles(){
+
+    const circles=[
+
+        {x:250,y:200},
+        {x:550,y:200},
+
+        {x:250,y:600},
+        {x:550,y:600}
+    ];
+
+
+    for(const c of circles){
+
+        ctx.beginPath();
+
+        ctx.arc(
+            c.x,
+            c.y,
+            32,
+            0,
+            Math.PI*2
+        );
+
+        ctx.strokeStyle="#8c7050";
+        ctx.lineWidth=2;
+
+        ctx.stroke();
+
+
+        /*
+           Cross inside
+        */
+
+        ctx.beginPath();
+
+        ctx.moveTo(
+            c.x-20,
+            c.y
+        );
+
+        ctx.lineTo(
+            c.x+20,
+            c.y
+        );
+
+        ctx.moveTo(
+            c.x,
+            c.y-20
+        );
+
+        ctx.lineTo(
+            c.x,
+            c.y+20
+        );
+
+        ctx.stroke();
+
+
+        /*
+           Small red point
+        */
+
+        ctx.beginPath();
+
+        ctx.arc(
+            c.x,
+            c.y,
+            4,
+            0,
+            Math.PI*2
+        );
+
+        ctx.fillStyle=RED;
+        ctx.fill();
+    }
+}
+
+
+/* =====================================================
+   CENTER STAR
+===================================================== */
+
+function drawCenterDesign(){
+
+    /*
+       Outer center circle
+    */
+
+    ctx.beginPath();
+
+    ctx.arc(
+        400,
+        400,
+        86,
+        0,
+        Math.PI*2
+    );
+
+    ctx.strokeStyle=LINE;
+    ctx.lineWidth=3;
+
+    ctx.stroke();
+
+
+    /*
+       Inner circle
+    */
+
+    ctx.beginPath();
+
+    ctx.arc(
+        400,
+        400,
+        70,
+        0,
+        Math.PI*2
+    );
+
+    ctx.strokeStyle="#806443";
+    ctx.lineWidth=2;
+
+    ctx.stroke();
+
+
+    /*
+       Star
+    */
+
+    const outer=72;
+    const inner=24;
+
+    ctx.beginPath();
+
+    for(let i=0;i<16;i++){
+
+        const angle =
+            -Math.PI/2 +
+            i*Math.PI/8;
+
+        const radius =
+            i%2===0
+            ?outer
+            :inner;
+
+        const x =
+            400+
+            Math.cos(angle)*radius;
+
+        const y =
+            400+
+            Math.sin(angle)*radius;
+
+        if(i===0)
+            ctx.moveTo(x,y);
+        else
+            ctx.lineTo(x,y);
+    }
+
+    ctx.closePath();
+
+    ctx.fillStyle="#171313";
+    ctx.fill();
+
+
+    /*
+       Red star rays
+    */
+
+    ctx.strokeStyle=RED;
+    ctx.lineWidth=7;
+
+    for(let i=0;i<8;i++){
+
+        const angle=
+            -Math.PI/2+
+            i*Math.PI/4;
+
+        ctx.beginPath();
+
+        ctx.moveTo(
+            400+
+            Math.cos(angle)*12,
+
+            400+
+            Math.sin(angle)*12
+        );
+
+        ctx.lineTo(
+            400+
+            Math.cos(angle)*62,
+
+            400+
+            Math.sin(angle)*62
+        );
+
+        ctx.stroke();
+    }
+
+
+    /*
+       Center red circle
+    */
+
+    ctx.beginPath();
+
+    ctx.arc(
+        400,
+        400,
+        13,
+        0,
+        Math.PI*2
+    );
+
+    ctx.fillStyle=RED;
+    ctx.fill();
+}
+
+
+/* =====================================================
+   CORNER RED DOTS
+===================================================== */
+
+function drawCornerDots(){
+
+    const points=[
+
+        [180,170],
+        [620,170],
+
+        [180,630],
+        [620,630],
+
+        [170,180],
+        [630,180],
+
+        [170,620],
+        [630,620]
+    ];
+
+
+    for(const p of points){
+
+        ctx.beginPath();
+
+        ctx.arc(
+            p[0],
+            p[1],
+            8,
+            0,
+            Math.PI*2
+        );
+
+        ctx.fillStyle=RED;
+
+        ctx.fill();
+    }
+}
+
+
+/* =====================================================
+   POCKETS
+===================================================== */
+
+function drawPockets(){
+
+    const pockets=[
+
+        [55,55],
+        [745,55],
+        [55,745],
+        [745,745]
+    ];
+
+
+    for(const p of pockets){
+
+        /*
+           Wooden pocket ring
+        */
+
+        ctx.beginPath();
+
+        ctx.arc(
+            p[0],
+            p[1],
+            31,
+            0,
+            Math.PI*2
+        );
+
+        ctx.fillStyle="#583017";
+
+        ctx.fill();
+
+
+        /*
+           Black hole
+        */
+
+        ctx.beginPath();
+
+        ctx.arc(
+            p[0],
+            p[1],
+            24,
+            0,
+            Math.PI*2
+        );
+
+        ctx.fillStyle="#050505";
+
+        ctx.fill();
+
+
+        /*
+           Inner highlight
+        */
+
+        ctx.beginPath();
+
+        ctx.arc(
+            p[0]-5,
+            p[1]-5,
+            14,
+            0,
+            Math.PI*2
+        );
+
+        ctx.strokeStyle="#1c1c1c";
+        ctx.lineWidth=3;
+
+        ctx.stroke();
+    }
+}
+
+
+/* =====================================================
+   VETHA CREATION
+===================================================== */
+
+function drawBrand(){
+
+    /*
+       Brand placed on top wooden border
+    */
+
+    ctx.save();
+
+    ctx.font =
+        "bold 20px Arial";
+
+    ctx.textAlign="center";
+
+    ctx.textBaseline="middle";
+
+    ctx.fillStyle="#f2d18a";
+
+    ctx.shadowColor="#4b230d";
+    ctx.shadowBlur=3;
+
+    ctx.fillText(
+        "VETHA CREATION",
+        400,
+        38
+    );
+
+    ctx.restore();
+}
+
+
+/* =====================================================
+   LINE HELPER
+===================================================== */
+
+function line(x1,y1,x2,y2){
+
+    ctx.beginPath();
+
+    ctx.moveTo(x1,y1);
+
+    ctx.lineTo(x2,y2);
+
+    ctx.stroke();
+}
+
+
+/* =====================================================
+   COIN DRAW
+===================================================== */
+
+function drawCoin(c){
+
+    if(!c.active)return;
+
+    const g =
+        ctx.createRadialGradient(
+            c.x-5,
+            c.y-6,
+            2,
+            c.x,
+            c.y,
+            c.r
+        );
+
+
+    if(c.type==="queen"){
+
+        g.addColorStop(
+            0,
+            "#ff7777"
+        );
+
+        g.addColorStop(
+            .5,
+            "#d71920"
+        );
+
+        g.addColorStop(
+            1,
+            "#70070b"
+        );
+
+    }else if(c.color==="#171717"){
+
+        g.addColorStop(
+            0,
+            "#777"
+        );
+
+        g.addColorStop(
+            .45,
+            "#292929"
+        );
+
+        g.addColorStop(
+            1,
+            "#020202"
+        );
+
+    }else{
+
+        g.addColorStop(
+            0,
+            "#ffffff"
+        );
+
+        g.addColorStop(
+            .5,
+            "#eee9df"
+        );
+
+        g.addColorStop(
+            1,
+            "#aaa"
+        );
+    }
+
+
+    ctx.beginPath();
+
+    ctx.arc(
+        c.x,
+        c.y,
+        c.r,
+        0,
+        Math.PI*2
+    );
+
+    ctx.fillStyle=g;
+
+    ctx.fill();
+
+    ctx.strokeStyle="#555";
+
+    ctx.lineWidth=2;
+
+    ctx.stroke();
+}
+
+
+/* =====================================================
+   STRIKER DRAW
+===================================================== */
+
+function drawStriker(){
+
+    if(!striker.active)return;
+
+    const g =
+        ctx.createRadialGradient(
+            striker.x-6,
+            striker.y-6,
+            2,
+            striker.x,
+            striker.y,
+            striker.r
+        );
+
+    g.addColorStop(
+        0,
+        "#ffffff"
+    );
+
+    g.addColorStop(
+        .5,
+        "#dddddd"
+    );
+
+    g.addColorStop(
+        1,
+        "#777777"
+    );
+
+
+    ctx.beginPath();
+
+    ctx.arc(
+        striker.x,
+        striker.y,
+        striker.r,
+        0,
+        Math.PI*2
+    );
+
+    ctx.fillStyle=g;
+
+    ctx.fill();
+
+    ctx.strokeStyle="#222";
+    ctx.lineWidth=3;
+
+    ctx.stroke();
+
+
+    /*
+       Inner ring
+    */
+
+    ctx.beginPath();
+
+    ctx.arc(
+        striker.x,
+        striker.y,
+        10,
+        0,
+        Math.PI*2
+    );
+
+    ctx.strokeStyle=
+        player===1
+        ?"#111"
+        :"#ffffff";
+
+    ctx.lineWidth=3;
+
+    ctx.stroke();
+}
+
+
+/* =====================================================
+   AIM
+===================================================== */
+
+function drawAim(){
+
+    if(!aiming)return;
+
+    const dx =
+        striker.x-pointerX;
+
+    const dy =
+        striker.y-pointerY;
+
+    const d =
+        Math.sqrt(
+            dx*dx+
+            dy*dy
+        );
+
+    if(d<5)return;
+
+    const nx=dx/d;
+    const ny=dy/d;
+
+    const length=
+        Math.min(d,150)*1.8;
+
+    const ex=
+        striker.x+
+        nx*length;
+
+    const ey=
+        striker.y+
+        ny*length;
+
+
+    ctx.setLineDash([
+        6,
+        8
+    ]);
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+        striker.x,
+        striker.y
+    );
+
+    ctx.lineTo(
+        ex,
+        ey
+    );
+
+    ctx.strokeStyle="#ffffff";
+    ctx.lineWidth=3;
+
+    ctx.stroke();
+
+    ctx.setLineDash([]);
+
+
+    /*
+       Arrow
+    */
+
+    ctx.beginPath();
+
+    ctx.moveTo(ex,ey);
+
+    ctx.lineTo(
+        ex-nx*18+ny*8,
+        ey-ny*18-nx*8
+    );
+
+    ctx.lineTo(
+        ex-nx*18-ny*8,
+        ey-ny*18+nx*8
+    );
+
+    ctx.closePath();
+
+    ctx.fillStyle="#f5c34d";
+
+    ctx.fill();
+}
+
+
+/* =====================================================
+   PHYSICS
+===================================================== */
+
+function update(p){
+
+    if(!p.active)return;
+
+    p.x+=p.vx;
+    p.y+=p.vy;
+
+    p.vx*=0.985;
+    p.vy*=0.985;
+
+    if(Math.abs(p.vx)<0.025)
+        p.vx=0;
+
+    if(Math.abs(p.vy)<0.025)
+        p.vy=0;
+
+
+    const left =
+        BOARD.x+p.r;
+
+    const right =
+        BOARD.x+
+        BOARD.w-
+        p.r;
+
+    const top =
+        BOARD.y+p.r;
+
+    const bottom =
+        BOARD.y+
+        BOARD.h-
+        p.r;
+
+
+    if(p.x<left){
+
+        p.x=left;
+        p.vx=
+            Math.abs(p.vx)*.84;
+    }
+
+    if(p.x>right){
+
+        p.x=right;
+        p.vx=
+            -Math.abs(p.vx)*.84;
+    }
+
+    if(p.y<top){
+
+        p.y=top;
+        p.vy=
+            Math.abs(p.vy)*.84;
+    }
+
+    if(p.y>bottom){
+
+        p.y=bottom;
+        p.vy=
+            -Math.abs(p.vy)*.84;
+    }
+}
+
+
+/* =====================================================
+   COLLISION
+===================================================== */
+
+function collide(a,b){
+
+    if(
+        !a.active||
+        !b.active
+    )
+        return;
+
+    const dx=b.x-a.x;
+    const dy=b.y-a.y;
+
+    const distance=
+        Math.sqrt(
+            dx*dx+
+            dy*dy
+        );
+
+    const minimum=
+        a.r+b.r;
+
+    if(
+        distance===0||
+        distance>=minimum
+    )
+        return;
+
+    const nx=
+        dx/distance;
+
+    const ny=
+        dy/distance;
+
+    const overlap=
+        minimum-distance;
+
+
+    a.x-=nx*overlap/2;
+    a.y-=ny*overlap/2;
+
+    b.x+=nx*overlap/2;
+    b.y+=ny*overlap/2;
+
+
+    const rvx=
+        b.vx-a.vx;
+
+    const rvy=
+        b.vy-a.vy;
+
+    const relative=
+        rvx*nx+
+        rvy*ny;
+
+    if(relative>0)return;
+
+
+    const impulse=
+        -(1+.88)*
+        relative/2;
+
+    const ix=
+        impulse*nx;
+
+    const iy=
+        impulse*ny;
+
+    a.vx-=ix;
+    a.vy-=iy;
+
+    b.vx+=ix;
+    b.vy+=iy;
+
+    beep(240,20);
+}
+
+
+/* =====================================================
+   POCKET
+===================================================== */
+
+function pocket(p){
+
+    if(!p.active)return;
+
+    const ps=[
+
+        {x:55,y:55},
+        {x:745,y:55},
+        {x:55,y:745},
+        {x:745,y:745}
+    ];
+
+
+    for(const q of ps){
+
+        const dx=p.x-q.x;
+        const dy=p.y-q.y;
+
+        const d=
+            Math.sqrt(
+                dx*dx+
+                dy*dy
+            );
+
+
+        if(d<29){
+
+            p.active=false;
+
+            p.vx=0;
+            p.vy=0;
+
+            beep(650,80);
+
+
+            if(p===striker){
+
+                scored=false;
+
+                message(
+                    "⚠ STRIKER FOUL"
+                );
+
+                return;
+            }
+
+
+            if(p.type==="queen"){
+
+                scores[player-1]+=3;
+
+                scored=true;
+
+                message(
+                    "👑 QUEEN +3 — PLAY AGAIN"
+                );
+
+            }else{
+
+                const black =
+                    p.color==="#171717";
+
+                const own =
+                    player===1
+                    ?black
+                    :!black;
+
+                if(own){
+
+                    scores[player-1]++;
+
+                    scored=true;
+
+                    message(
+                        "⭐ COIN +1 — PLAY AGAIN"
+                    );
+
+                }else{
+
+                    message(
+                        "OPPONENT COIN"
+                    );
+                }
+            }
+
+            updateUI();
+
+            return;
+        }
+    }
+}
+
+
+/* =====================================================
+   STOP
+===================================================== */
+
+function stopped(){
+
+    if(
+        Math.abs(striker.vx)>.03||
+        Math.abs(striker.vy)>.03
+    )
+        return false;
+
+    for(const c of coins){
+
+        if(!c.active)
+            continue;
+
+        if(
+            Math.abs(c.vx)>.03||
+            Math.abs(c.vy)>.03
+        )
+            return false;
+    }
+
+    return true;
+}
+
+
+/* =====================================================
+   TURN
+===================================================== */
+
+function finishShot(){
+
+    if(!shooting)return;
+
+    if(!stopped())return;
+
+    shooting=false;
+
+
+    if(!scored){
+
+        player =
+            player===1
+            ?2
+            :1;
+    }
+
+
+    resetStriker();
+
+    message(
+        scored
+        ?"PLAYER "+player+" — PLAY AGAIN"
+        :"TURN → PLAYER "+player
+    );
+
+    scored=false;
+
+    updateUI();
+}
+
+
+/* =====================================================
+   POINTER
+===================================================== */
+
+function getPointer(e){
+
+    const r =
+        canvas.getBoundingClientRect();
+
+    return {
+
+        x:
+            (e.clientX-r.left)*
+            800/r.width,
+
+        y:
+            (e.clientY-r.top)*
+            800/r.height
+    };
+}
+
+
+canvas.addEventListener(
+"pointerdown",
+e=>{
+
+    if(shooting)return;
+
+    const p=getPointer(e);
+
+    const dx=
+        p.x-striker.x;
+
+    const dy=
+        p.y-striker.y;
+
+    const d=
+        Math.sqrt(
+            dx*dx+
+            dy*dy
+        );
+
+
+    if(d<45){
+
+        aiming=true;
+
+        pointerX=p.x;
+        pointerY=p.y;
+
+        canvas.setPointerCapture(
+            e.pointerId
+        );
+    }
+});
+
+
+canvas.addEventListener(
+"pointermove",
+e=>{
+
+    if(!aiming)return;
+
+    const p=getPointer(e);
+
+    pointerX=p.x;
+    pointerY=p.y;
+
+
+    /*
+       Move striker ONLY horizontally
+       along the baseline.
+    */
+
+    if(
+        Math.abs(
+            p.y-striker.y
+        )<30
+    ){
+
+        striker.x=
+            Math.max(
+                190,
+                Math.min(
+                    610,
+                    p.x
+                )
+            );
+
+        pointerX=striker.x;
+    }
+});
+
+
+canvas.addEventListener(
+"pointerup",
+e=>{
+
+    if(!aiming)return;
+
+    aiming=false;
+
+    const p=getPointer(e);
+
+    const dx=
+        striker.x-p.x;
+
+    const dy=
+        striker.y-p.y;
+
+    const d=
+        Math.sqrt(
+            dx*dx+
+            dy*dy
+        );
+
+
+    /*
+       Horizontal movement only
+       means striker positioning.
+    */
+
+    if(
+        d<25||
+        Math.abs(dy)<15
+    )
+        return;
+
+
+    const power=
+        Math.min(
+            d*.11,
+            16
+        );
+
+
+    striker.vx=
+        dx/d*power;
+
+    striker.vy=
+        dy/d*power;
+
+    shooting=true;
+
+    scored=false;
+
+    beep(450,60);
+});
+
+
+/* =====================================================
+   UI
+===================================================== */
+
+function updateUI(){
+
+    document.getElementById("score1")
+        .textContent=scores[0];
+
+    document.getElementById("score2")
+        .textContent=scores[1];
+
+    document.getElementById("turn")
+        .textContent=
+        "PLAYER "+player+
+        " TURN";
+
+
+    document.getElementById("p1")
+        .classList.toggle(
+            "active",
+            player===1
+        );
+
+    document.getElementById("p2")
+        .classList.toggle(
+            "active",
+            player===2
+        );
+}
+
+function message(text){
+
+    document.getElementById("message")
+        .textContent=text;
+}
+
+
+/* =====================================================
+   RESTART
+===================================================== */
+
+function restart(){
+
+    player=1;
+
+    scores=[0,0];
+
+    aiming=false;
+    shooting=false;
+    scored=false;
+
+    setupCoins();
+
+    updateUI();
+
+    message(
+        "Move the striker on the baseline, drag backward and release."
+    );
+}
+
+
+/* =====================================================
+   GAME LOOP
+===================================================== */
+
+function loop(){
+
+    update(striker);
+
+    for(const c of coins)
+        update(c);
+
+
+    for(const c of coins)
+        collide(striker,c);
+
+
+    for(let i=0;i<coins.length;i++){
+
+        for(let j=i+1;j<coins.length;j++){
+
+            collide(
+                coins[i],
+                coins[j]
+            );
+        }
+    }
+
+
+    pocket(striker);
+
+    for(const c of coins)
+        pocket(c);
+
+
+    finishShot();
+
+
+    drawBoard();
+
+    for(const c of coins)
+        drawCoin(c);
+
+    drawStriker();
+
+    drawAim();
+
+
+    requestAnimationFrame(loop);
+}
+
+
+/* =====================================================
+   START
+===================================================== */
+
+setupCoins();
+
+updateUI();
+
+loop();
+
+</script>
+
+</body>
+</html>
